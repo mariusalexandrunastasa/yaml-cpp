@@ -40,4 +40,10 @@ project "yaml-cpp"
 
     filter "configurations:Release"
         runtime "Release"
-        optimize "on"
+        optimize "speed"
+
+    filter "configurations:Dist"
+        runtime "Release"
+        optimize "speed"
+        symbols "off"
+        vsprops { ["VcpkgConfiguration"] = "Release" }
