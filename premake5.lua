@@ -46,4 +46,8 @@ project "yaml-cpp"
         runtime "Release"
         optimize "speed"
         symbols "off"
-        vsprops { ["VcpkgConfiguration"] = "Release" }
+
+    filter { "configurations:Dist", "system:windows" }
+        if _G.vsprops then
+            vsprops { ["VcpkgConfiguration"] = "Release" }
+        end
