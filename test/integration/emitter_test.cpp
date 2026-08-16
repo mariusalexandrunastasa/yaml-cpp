@@ -3,6 +3,8 @@
 #include "yaml-cpp/yaml.h"  // IWYU pragma: keep
 #include "gtest/gtest.h"
 
+#include <cstdint>
+
 namespace YAML {
 namespace {
 
@@ -101,7 +103,7 @@ TEST_F(EmitterTest, StringFormat) {
   out << "string";
   out << EndSeq;
 
-  ExpectEmit("- 'string'\n- \"string\"\n- |\n  string");
+  ExpectEmit("- 'string'\n- \"string\"\n- |-\n  string");
 }
 
 TEST_F(EmitterTest, IntBase) {
@@ -115,6 +117,14 @@ TEST_F(EmitterTest, IntBase) {
   out << EndSeq;
 
   ExpectEmit("- 1024\n- 0x400\n- 02000");
+}
+
+TEST_F(EmitterTest, UnsignedEightBitInteger) {
+  out << BeginSeq;
+  out << std::uint8_t{16};
+  out << EndSeq;
+
+  ExpectEmit("- 16");
 }
 
 TEST_F(EmitterTest, NumberPrecision) {
@@ -409,7 +419,7 @@ TEST_F(EmitterTest, ScalarFormat) {
       "- simple scalar\n- 'explicit single-quoted scalar'\n- \"explicit "
       "double-quoted scalar\"\n- \"auto-detected\\ndouble-quoted "
       "scalar\"\n- a "
-      "non-\"auto-detected\" double-quoted scalar\n- |\n  literal scalar\n "
+      "non-\"auto-detected\" double-quoted scalar\n- |-\n  literal scalar\n "
       " "
       "that may span\n  many, many\n  lines and have \"whatever\" "
       "crazy\tsymbols that we like");
@@ -424,10 +434,26 @@ TEST_F(EmitterTest, LiteralWithoutTrailingSpaces) {
   out << YAML::EndMap;
 
   ExpectEmit(
-      "key: |\n"
+      "key: |-\n"
       "  expect that with two newlines\n\n"
       "  no spaces are emitted in the empty line");
 }
+
+TEST_F(EmitterTest, LiteralWithAndWithoutTrailingEmptyLines) {
+  out << BeginSeq;
+  out << Literal << "A\nB";
+  out << Literal << "A\nB\n";
+  out << Literal << "A\nB\n\n\n";
+  out << "something";
+  out << EndSeq;
+
+  ExpectEmit(
+      "- |-\n  A\n  B\n"
+      "- |\n  A\n  B\n"
+      "- |+\n  A\n  B\n\n\n"
+      "- something");
+}
+
 
 TEST_F(EmitterTest, AutoLongKeyScalar) {
   out << BeginMap;
@@ -435,7 +461,7 @@ TEST_F(EmitterTest, AutoLongKeyScalar) {
   out << Value << "and its value";
   out << EndMap;
 
-  ExpectEmit("? |\n  multi-line\n  scalar\n: and its value");
+  ExpectEmit("? |-\n  multi-line\n  scalar\n: and its value");
 }
 
 TEST_F(EmitterTest, LongKeyFlowMap) {
@@ -507,6 +533,15 @@ TEST_F(EmitterTest, AliasAndAnchor) {
   out << EndSeq;
 
   ExpectEmit("- &fred\n  name: Fred\n  age: 42\n- *fred");
+}
+
+TEST_F(EmitterTest, AnchorWithTilde) {
+  out << BeginSeq;
+  out << Anchor("foo~bar") << "value";
+  out << Alias("foo~bar");
+  out << EndSeq;
+
+  ExpectEmit("- &foo~bar value\n- *foo~bar");
 }
 
 TEST_F(EmitterTest, AliasOnKey) {
@@ -717,7 +752,7 @@ TEST_F(EmitterTest, ComplexDoc) {
       "given: Dorothy\n  family: Gale\nitems:\n  - part_no: A4786\n    "
       "descrip: Water Bucket (Filled)\n    price: 1.47\n    quantity: 4\n  - "
       "part_no: E1628\n    descrip: High Heeled \"Ruby\" Slippers\n    price: "
-      "100.27\n    quantity: 1\nbill-to: &id001\n  street: |\n    123 Tornado "
+      "100.27\n    quantity: 1\nbill-to: &id001\n  street: |-\n    123 Tornado "
       "Alley\n    Suite 16\n  city: East Westville\n  state: KS\nship-to: "
       "*id001");
 }
@@ -1175,6 +1210,95 @@ TEST_F(EmitterTest, EmptyBinary) {
   ExpectEmit("!!binary \"\"");
 }
 
+TEST_F(EmitterTest, BinaryStyles) {
+  Binary binary(reinterpret_cast<const unsigned char*>("Hello, World!"), 13);
+  out << BeginMap;
+  out << Key << "auto";
+  out << Value << Auto << binary;
+  out << Key << "single";
+  out << Value << SingleQuoted << binary;
+  out << Key << "double";
+  out << Value << DoubleQuoted << binary;
+  out << Key << "literal";
+  out << Value << Literal << binary;
+  out << Key << "literal_empty";
+  out << Value << Literal << Binary(reinterpret_cast<const unsigned char*>(""), 0);
+  out << Key << "literal_indented";
+  out << Value << Literal << Indent(8) << binary;
+  ExpectEmit(
+      "auto: !!binary \"SGVsbG8sIFdvcmxkIQ==\"\n"
+      "single: !!binary \'SGVsbG8sIFdvcmxkIQ==\'\n"
+      "double: !!binary \"SGVsbG8sIFdvcmxkIQ==\"\n"
+      "literal: !!binary |-\n"
+      "  SGVsbG8sIFdvcmxkIQ==\n"
+      "literal_empty: !!binary |-\n"
+      "\n"
+      "literal_indented: !!binary |-\n"
+      "        SGVsbG8sIFdvcmxkIQ=="
+  );
+}
+
+TEST_F(EmitterTest, BinaryWrap) {
+  Binary binary(reinterpret_cast<const unsigned char*>(
+    "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed eiusmod "
+    "tempor incididunt ut labore et dolore magna aliqua."
+    "Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris "
+    "nisi ut aliquip exea commodo consequat."
+  ), 226);
+
+  out << BeginMap;
+  out << Key << "wrap80";
+  out << Value << Literal << binary;
+  out << Key << "wrap80_indent4";
+  out << Value << Literal << Indent(4) << binary;
+  out << Key << "wrap60";
+  out << Value << Literal << Wrap(60) << binary;
+  out << Key << "wrap60_indent4";
+  out << Value << Literal << Wrap(60) << Indent(4) << binary;
+  out << Key << "wrap_off";
+  out << Value << Literal << Wrap(0) << binary;
+  out << Key << "wrap_off_indent4";
+  out << Value << Literal << Wrap(0) << Indent(4) << binary;
+  ExpectEmit(
+      "wrap80: !!binary |-\n"
+      "  TG9yZW0gaXBzdW0gZG9sb3Igc2l0IGFtZXQsIGNvbnNlY3RldHVyIGFkaXBpc2NpbmcgZWxpdC4gU2\n"
+      "  VkIGVpdXNtb2QgdGVtcG9yIGluY2lkaWR1bnQgdXQgbGFib3JlIGV0IGRvbG9yZSBtYWduYSBhbGlx\n"
+      "  dWEuVXQgZW5pbSBhZCBtaW5pbSB2ZW5pYW0sIHF1aXMgbm9zdHJ1ZCBleGVyY2l0YXRpb24gdWxsYW\n"
+      "  1jbyBsYWJvcmlzIG5pc2kgdXQgYWxpcXVpcCBleGVhIGNvbW1vZG8gY29uc2VxdWF0Lg==\n"
+      "wrap80_indent4: !!binary |-\n"
+      "    TG9yZW0gaXBzdW0gZG9sb3Igc2l0IGFtZXQsIGNvbnNlY3RldHVyIGFkaXBpc2NpbmcgZWxpdC4g\n"
+      "    U2VkIGVpdXNtb2QgdGVtcG9yIGluY2lkaWR1bnQgdXQgbGFib3JlIGV0IGRvbG9yZSBtYWduYSBh\n"
+      "    bGlxdWEuVXQgZW5pbSBhZCBtaW5pbSB2ZW5pYW0sIHF1aXMgbm9zdHJ1ZCBleGVyY2l0YXRpb24g\n"
+      "    dWxsYW1jbyBsYWJvcmlzIG5pc2kgdXQgYWxpcXVpcCBleGVhIGNvbW1vZG8gY29uc2VxdWF0Lg==\n"
+      "wrap60: !!binary |-\n"
+      "  TG9yZW0gaXBzdW0gZG9sb3Igc2l0IGFtZXQsIGNvbnNlY3RldHVyIGFkaX\n"
+      "  Bpc2NpbmcgZWxpdC4gU2VkIGVpdXNtb2QgdGVtcG9yIGluY2lkaWR1bnQg\n"
+      "  dXQgbGFib3JlIGV0IGRvbG9yZSBtYWduYSBhbGlxdWEuVXQgZW5pbSBhZC\n"
+      "  BtaW5pbSB2ZW5pYW0sIHF1aXMgbm9zdHJ1ZCBleGVyY2l0YXRpb24gdWxs\n"
+      "  YW1jbyBsYWJvcmlzIG5pc2kgdXQgYWxpcXVpcCBleGVhIGNvbW1vZG8gY2\n"
+      "  9uc2VxdWF0Lg==\n"
+      "wrap60_indent4: !!binary |-\n"
+      "    TG9yZW0gaXBzdW0gZG9sb3Igc2l0IGFtZXQsIGNvbnNlY3RldHVyIGFk\n"
+      "    aXBpc2NpbmcgZWxpdC4gU2VkIGVpdXNtb2QgdGVtcG9yIGluY2lkaWR1\n"
+      "    bnQgdXQgbGFib3JlIGV0IGRvbG9yZSBtYWduYSBhbGlxdWEuVXQgZW5p\n"
+      "    bSBhZCBtaW5pbSB2ZW5pYW0sIHF1aXMgbm9zdHJ1ZCBleGVyY2l0YXRp\n"
+      "    b24gdWxsYW1jbyBsYWJvcmlzIG5pc2kgdXQgYWxpcXVpcCBleGVhIGNv\n"
+      "    bW1vZG8gY29uc2VxdWF0Lg==\n"
+      "wrap_off: !!binary |-\n"
+      "  TG9yZW0gaXBzdW0gZG9sb3Igc2l0IGFtZXQsIGNvbnNlY3RldHVyIGFkaXBpc2NpbmcgZW"
+      "xpdC4gU2VkIGVpdXNtb2QgdGVtcG9yIGluY2lkaWR1bnQgdXQgbGFib3JlIGV0IGRvbG9yZS"
+      "BtYWduYSBhbGlxdWEuVXQgZW5pbSBhZCBtaW5pbSB2ZW5pYW0sIHF1aXMgbm9zdHJ1ZCBleG"
+      "VyY2l0YXRpb24gdWxsYW1jbyBsYWJvcmlzIG5pc2kgdXQgYWxpcXVpcCBleGVhIGNvbW1vZG"
+      "8gY29uc2VxdWF0Lg==\n"
+      "wrap_off_indent4: !!binary |-\n"
+      "    TG9yZW0gaXBzdW0gZG9sb3Igc2l0IGFtZXQsIGNvbnNlY3RldHVyIGFkaXBpc2Npbmcg"
+      "ZWxpdC4gU2VkIGVpdXNtb2QgdGVtcG9yIGluY2lkaWR1bnQgdXQgbGFib3JlIGV0IGRvbG9y"
+      "ZSBtYWduYSBhbGlxdWEuVXQgZW5pbSBhZCBtaW5pbSB2ZW5pYW0sIHF1aXMgbm9zdHJ1ZCBl"
+      "eGVyY2l0YXRpb24gdWxsYW1jbyBsYWJvcmlzIG5pc2kgdXQgYWxpcXVpcCBleGVhIGNvbW1v"
+      "ZG8gY29uc2VxdWF0Lg=="
+  );
+}
+
 TEST_F(EmitterTest, ColonAtEndOfScalar) {
   out << "a:";
   ExpectEmit("\"a:\"");
@@ -1452,8 +1576,8 @@ TEST_F(EmitterTest, Infinity) {
   out << YAML::EndMap;
 
   ExpectEmit(
-	  "foo: .inf\n"
-	  "bar: .inf");
+      "foo: .inf\n"
+      "bar: .inf");
 }
 
 TEST_F(EmitterTest, NegInfinity) {
@@ -1465,8 +1589,8 @@ TEST_F(EmitterTest, NegInfinity) {
   out << YAML::EndMap;
 
   ExpectEmit(
-	  "foo: -.inf\n"
-	  "bar: -.inf");
+      "foo: -.inf\n"
+      "bar: -.inf");
 }
 
 TEST_F(EmitterTest, NaN) {
@@ -1478,8 +1602,8 @@ TEST_F(EmitterTest, NaN) {
   out << YAML::EndMap;
 
   ExpectEmit(
-	  "foo: .nan\n"
-	  "bar: .nan");
+      "foo: .nan\n"
+      "bar: .nan");
 }
 
 TEST_F(EmitterTest, ComplexFlowSeqEmbeddingAMapWithNewLine) { 
@@ -1779,6 +1903,188 @@ TEST_F(EmitterErrorTest, InvalidAlias) {
 
   ExpectEmitError(ErrorMsg::INVALID_ALIAS);
 }
+
+TEST_F(EmitterTest, ShowTrailingZero) {
+  out << BeginSeq;
+  out.SetShowTrailingZero(false);
+  out << 0.;
+  out << -0.;
+  out << 3.;
+  out << 42.;
+  out.SetShowTrailingZero(true);
+  out << 0.;
+  out << -0.;
+  out << 4.;
+  out << 51.;
+  out.SetShowTrailingZero(false);
+  out << 0.2;
+  out << 5.12;
+  out.SetShowTrailingZero(true);
+  out << 0.2;
+  out << 6.34;
+  out << std::numeric_limits<double>::infinity();
+  out << -std::numeric_limits<double>::infinity();
+  out << std::numeric_limits<double>::quiet_NaN();
+  out << std::numeric_limits<double>::signaling_NaN();
+  out << EndSeq;
+
+  ExpectEmit(R"(- 0
+- -0
+- 3
+- 42
+- 0.0
+- -0.0
+- 4.0
+- 51.0
+- 0.2
+- 5.12
+- 0.2
+- 6.34
+- .inf
+- -.inf
+- .nan
+- .nan)");
+}
+
+TEST_F(EmitterTest, CommentInsideMapValueIsIndented) {
+  out << YAML::BeginMap << YAML::Key << "foo" << YAML::BeginMap
+      << YAML::Comment("Comment") << YAML::Key << "bar" << YAML::Value << true
+      << YAML::EndMap << YAML::EndMap;
+
+  ExpectEmit(
+      "foo:\n"
+      "  # Comment\n"
+      "  bar: true");
+}
+
+TEST_F(EmitterTest, CommentInsideDoubleNestedMapIsIndented) {
+  out << YAML::BeginMap << YAML::Key << "map1" << YAML::Value << YAML::BeginMap
+      << YAML::Key << "map2" << YAML::Value << YAML::BeginMap
+      << YAML::Comment("nested comment") << YAML::Key << "foo" << YAML::Value
+      << "bar" << YAML::EndMap << YAML::EndMap << YAML::EndMap;
+
+  ExpectEmit(
+      "map1:\n"
+      "  map2:\n"
+      "    # nested comment\n"
+      "    foo: bar");
+}
+
+TEST_F(EmitterTest, CommentAtEndOfDoubleNestedMapIsIndented) {
+  out << YAML::BeginMap << YAML::Key << "map1" << YAML::Value << YAML::BeginMap
+      << YAML::Key << "map2" << YAML::Value << YAML::BeginMap << YAML::Key
+      << "foo" << YAML::Value << "bar" << YAML::Newline
+      << YAML::Comment("nested comment at the end") << YAML::EndMap
+      << YAML::EndMap << YAML::EndMap;
+
+  ExpectEmit(
+      "map1:\n"
+      "  map2:\n"
+      "    foo: bar\n"
+      "    # nested comment at the end");
+}
+
+TEST_F(EmitterTest, CommentAfterNestedMapUsesParentIndentation) {
+  out << YAML::BeginMap << YAML::Key << "map1" << YAML::Value << YAML::BeginMap
+      << YAML::Key << "map2" << YAML::Value << YAML::BeginMap << YAML::Key
+      << "foo" << YAML::Value << "bar" << YAML::EndMap << YAML::Newline
+      << YAML::Comment("nested comment outside of map2") << YAML::EndMap
+      << YAML::EndMap;
+
+  ExpectEmit(
+      "map1:\n"
+      "  map2:\n"
+      "    foo: bar\n"
+      "  # nested comment outside of map2");
+}
+
+TEST_F(EmitterTest, CommentInsideFlowMapIsUnaffected) {
+  out << YAML::BeginMap << YAML::Key << "some_map" << YAML::Value << YAML::Flow
+      << YAML::BeginMap << YAML::Key << "foo" << YAML::Value << "bar"
+      << YAML::Comment("comment") << YAML::Key << "key2" << YAML::Value
+      << "value2" << YAML::EndMap << YAML::EndMap;
+
+  ExpectEmit(
+      "some_map: {foo: bar,  # comment\n"
+      "key2: value2}");
+}
+
+TEST_F(EmitterTest, EmitEmptyNode) {
+  Node node;
+  out << node;
+  ExpectEmit("");
+}
+
+TEST_F(EmitterTest, EmitSetVerbatimTag) {
+  Node node, root;
+  node = 42;
+  node.SetTag("hello");
+  root["num"] = node;
+
+  out << root;
+  ExpectEmit("num: !<hello> 42");
+}
+
+// Regression for #1373: emitting a node whose tag begins with "!!"
+// (a YAML secondary tag handle, e.g. "!!str") used to bail out with
+// INVALID_TAG and truncate the output after the first '!'.
+TEST_F(EmitterTest, EmitSetTagSecondaryHandle) {
+  Node root;
+  Node string_node{"hello"};
+  string_node.SetTag("!!str");
+  root["some_string"] = string_node;
+  root["some_int"] = 2;
+
+  out << root;
+  ExpectEmit("some_string: !!str hello\nsome_int: 2");
+}
+
+TEST_F(EmitterTest, EmitSetTagPrimaryHandle) {
+  Node root;
+  Node string_node{"hello"};
+  string_node.SetTag("!mytag");
+  root["v"] = string_node;
+
+  out << root;
+  ExpectEmit("v: !mytag hello");
+}
+
+TEST_F(EmitterTest, EmitSetLocalTagInNameHandle) {
+  Node node, root;
+  node = 42;
+  node.SetTag("!a!foo");
+  root["num"] = node;
+
+  out << root;
+  ExpectEmit("num: !a!foo 42");
+}
+
+TEST_F(EmitterTest, EmitMultiDocsWithTags) {
+   out << YAML::BeginDoc
+       << YAML::LocalTag("The_Tag")
+       << YAML::BeginSeq
+       << "Some Value"
+       << YAML::EndSeq
+       << YAML::EndDoc;
+
+   out << YAML::BeginDoc
+       << YAML::LocalTag("The_Tag")
+       << YAML::BeginSeq
+       << "Some Value"
+       << YAML::EndSeq
+       << YAML::EndDoc;
+
+  ExpectEmit(
+        "---\n"
+        "!The_Tag\n"
+        "- Some Value\n"
+        "...\n"
+        "---\n"
+        "!The_Tag\n"
+        "- Some Value\n"
+        "...\n");
+}
+
 
 }  // namespace
 }  // namespace YAML

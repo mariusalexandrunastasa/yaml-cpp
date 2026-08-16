@@ -39,7 +39,7 @@ bool IsAnchorChar(int ch) {  // test for ns-anchor-char
     return false;
   }
 
-  if (ch < 0x7E) {
+  if (ch <= 0x7E) {
     return true;
   }
 
@@ -229,7 +229,7 @@ std::pair<uint16_t, uint16_t> EncodeUTF16SurrogatePair(int codePoint) {
 }
 
 void WriteDoubleQuoteEscapeSequence(ostream_wrapper& out, int codePoint, StringEscaping::value stringEscapingStyle) {
-  static const char hexDigits[] = "0123456789abcdef";
+  static constexpr char hexDigits[] = "0123456789abcdef";
 
   out << "\\";
   int digits = 8;
@@ -290,6 +290,33 @@ StringFormat::value ComputeStringFormat(const char* str, std::size_t size,
         return StringFormat::Literal;
       }
       return StringFormat::DoubleQuoted;
+    default:
+      break;
+  }
+
+  return StringFormat::DoubleQuoted;
+}
+
+StringFormat::value ComputeBinaryFormat(const Binary &bin,
+                                        EMITTER_MANIP strFormat,
+                                        FlowType::value flowType) {
+  // Equivalent to calling ComputeStringFormat with the base64
+  // encoded form of 'bin'.
+  switch (strFormat) {
+    case Auto:
+      if (bin.size() > 0u) {
+        return StringFormat::Plain; 
+      }
+      return StringFormat::DoubleQuoted;
+    case SingleQuoted:
+      return StringFormat::SingleQuoted;
+    case DoubleQuoted:
+      return StringFormat::DoubleQuoted;
+    case Literal:
+      if (flowType == FlowType::Flow) {
+        return StringFormat::DoubleQuoted;
+      }
+      return StringFormat::Literal;
     default:
       break;
   }
@@ -366,7 +393,28 @@ bool WriteDoubleQuotedString(ostream_wrapper& out, const char* str, std::size_t 
 
 bool WriteLiteralString(ostream_wrapper& out, const char* str, std::size_t size,
                         std::size_t indent) {
-  out << "|\n";
+  // depending on the numbers of new lines at the end of the string
+  // we need to use 'clip (-)', 'strip (default)' or 'keep' (+) annotation.
+  // if there is no newline at the end, we need 'clip'
+  // if there is single new line at the end, we need 'strip'
+  // otherwise 'keep'
+  //
+  // see YAML spec 1.2 chapter '8.1.1.2 Block Chomping Indicator' for more information
+  // https://yaml.org/spec/1.2.2/#8112-block-chomping-indicator
+
+
+  // The chomping depends on the number of new lines.
+  // The output following this 'WriteLiteralString' call will add an additional '\n',
+  // because of this we need to remove one in the case of 'strip' and 'keep'.
+  if (size == 0 || str[size-1] != '\n') { // clip
+      out << "|-\n";
+  } else if (size == 1 || str[size-2] != '\n') { // strip
+    out << "|\n";
+    size -= 1;
+  } else { // 'keep'
+    out << "|+\n";
+    size -= 1;
+  }
   int codePoint;
   for (const char* i = str;
        GetNextCodePointAndAdvance(codePoint, i, str + size);) {
@@ -491,9 +539,34 @@ bool WriteTagWithPrefix(ostream_wrapper& out, const std::string& prefix,
 
 bool WriteBinary(ostream_wrapper& out, const Binary& binary) {
   std::string encoded = EncodeBase64(binary.data(), binary.size());
-  WriteDoubleQuotedString(out, encoded.data(), encoded.size(),
-                          StringEscaping::None);
-  return true;
+  return WriteDoubleQuotedString(out, encoded.data(), encoded.size(),
+                                 StringEscaping::None);
 }
+
+bool WriteLiteralBinary(ostream_wrapper& out, const Binary& binary, std::size_t indent, std::size_t wrap) {
+  std::string encoded = EncodeBase64(binary.data(), binary.size());
+  std::string wrapped = "";
+  if (wrap) {
+    if (wrap <= indent) return false;
+    wrap -= indent;
+    std::size_t point = wrap;
+    for (std::size_t i = 0; i < encoded.size(); i++) {
+      if (i == point) {
+        wrapped += '\n';
+        point += wrap;
+      }
+      wrapped += encoded[i];
+    }
+  }
+  else
+    wrapped = encoded;
+  return WriteLiteralString(out, wrapped.data(), wrapped.size(), indent);
+}
+
+bool WriteSingleQuotedBinary(ostream_wrapper& out, const Binary& binary) {
+  std::string encoded = EncodeBase64(binary.data(), binary.size());
+  return WriteSingleQuotedString(out, encoded.data(), encoded.size());
+}
+
 }  // namespace Utils
 }  // namespace YAML

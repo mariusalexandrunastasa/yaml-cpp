@@ -1,14 +1,6 @@
-# 3.5 is actually available almost everywhere.
-# 3.30 as the upper policy limit avoids CMake deprecation warnings.
-cmake_minimum_required(VERSION 3.5...3.30)
+cmake_minimum_required(VERSION 3.15..4.3)
 
-# enable MSVC_RUNTIME_LIBRARY target property
-# see https://cmake.org/cmake/help/latest/policy/CMP0091.html
-if(POLICY CMP0091)
-  cmake_policy(SET CMP0091 NEW)
-endif()
-
-project(YAML_CPP VERSION 0.8.0 LANGUAGES CXX)
+project(YAML_CPP VERSION 0.9.0 LANGUAGES CXX)
 
 set(YAML_CPP_MAIN_PROJECT OFF)
 if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
@@ -29,12 +21,14 @@ option(YAML_CPP_FORMAT_SOURCE "Format source" ${YAML_CPP_MAIN_PROJECT})
 option(YAML_CPP_DISABLE_UNINSTALL  "Disable uninstallation of yaml-cpp" OFF)
 option(YAML_USE_SYSTEM_GTEST "Use system googletest if found" OFF)
 option(YAML_ENABLE_PIC "Use Position-Independent Code " ON)
+option(YAML_CPP_USE_STRICT_FLAGS "Uses strict compilation flags e.g.: -Wall" ${YAML_CPP_MAIN_PROJECT})
 
 cmake_dependent_option(YAML_CPP_BUILD_TESTS
   "Enable yaml-cpp tests" OFF
   "BUILD_TESTING;YAML_CPP_MAIN_PROJECT" OFF)
 cmake_dependent_option(YAML_MSVC_SHARED_RT
-  "MSVC: Build yaml-cpp with shared runtime libs (/MD)" ON
+  "MSVC: Build yaml-cpp with shared runtime libs (/MD). When building a static library, leave OFF for /MT to match statically-linked apps."
+  ${YAML_BUILD_SHARED_LIBS}
   "CMAKE_SYSTEM_NAME MATCHES Windows" OFF)
 set(YAML_CPP_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/yaml-cpp"
   CACHE STRING "Path to install the CMake package to")
@@ -53,23 +47,16 @@ endif()
 
 set(build-shared $<BOOL:${YAML_BUILD_SHARED_LIBS}>)
 set(build-windows-dll $<AND:$<BOOL:${CMAKE_HOST_WIN32}>,${build-shared}>)
-set(not-msvc $<NOT:$<CXX_COMPILER_ID:MSVC>>)
 set(msvc-shared_rt $<BOOL:${YAML_MSVC_SHARED_RT}>)
+
+set(print-warnings $<NOT:$<OR:$<CXX_COMPILER_ID:MSVC>,$<CXX_COMPILER_ID:NVHPC>>>)
 
 if (NOT DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
   set(CMAKE_MSVC_RUNTIME_LIBRARY
     MultiThreaded$<$<CONFIG:Debug>:Debug>$<${msvc-shared_rt}:DLL>)
 endif()
 
-set(contrib-pattern "src/contrib/*.cpp")
-set(src-pattern "src/*.cpp")
-if (CMAKE_VERSION VERSION_GREATER 3.12)
-  list(INSERT contrib-pattern 0 CONFIGURE_DEPENDS)
-  list(INSERT src-pattern 0 CONFIGURE_DEPENDS)
-endif()
-
-file(GLOB yaml-cpp-contrib-sources ${contrib-pattern})
-file(GLOB yaml-cpp-sources ${src-pattern})
+include("${CMAKE_CURRENT_LIST_DIR}/cmake/yaml-cpp-sources.cmake")
 
 set(msvc-rt $<TARGET_PROPERTY:MSVC_RUNTIME_LIBRARY>)
 
@@ -78,8 +65,6 @@ set(msvc-rt-mt-static $<STREQUAL:${msvc-rt},MultiThreaded>)
 
 set(msvc-rt-mtd-dll $<STREQUAL:${msvc-rt},MultiThreadedDebugDLL>)
 set(msvc-rt-mt-dll $<STREQUAL:${msvc-rt},MultiThreadedDLL>)
-
-set(backport-msvc-runtime $<VERSION_LESS:${CMAKE_VERSION},3.15>)
 
 add_library(yaml-cpp ${yaml-cpp-type} "")
 add_library(yaml-cpp::yaml-cpp ALIAS yaml-cpp)
@@ -108,20 +93,15 @@ if (NOT DEFINED CMAKE_CXX_STANDARD)
       CXX_STANDARD 11)
 endif()
 
-if(YAML_CPP_MAIN_PROJECT)
+if (YAML_CPP_USE_STRICT_FLAGS)
   target_compile_options(yaml-cpp
     PRIVATE
-      $<${not-msvc}:-Wall -Wextra -Wshadow -Weffc++ -Wno-long-long>
-      $<${not-msvc}:-pedantic -pedantic-errors>)
+      $<${print-warnings}:-Wall -Wextra -Wshadow -Weffc++ -Wno-long-long>
+      $<${print-warnings}:-pedantic -pedantic-errors>)
 endif()
 
 target_compile_options(yaml-cpp
   PRIVATE
-    $<$<AND:${backport-msvc-runtime},${msvc-rt-mtd-static}>:-MTd>
-    $<$<AND:${backport-msvc-runtime},${msvc-rt-mt-static}>:-MT>
-    $<$<AND:${backport-msvc-runtime},${msvc-rt-mtd-dll}>:-MDd>
-    $<$<AND:${backport-msvc-runtime},${msvc-rt-mt-dll}>:-MD>
-
     # /wd4127 = disable warning C4127 "conditional expression is constant"
     # http://msdn.microsoft.com/en-us/library/6t66728h.aspx
     # /wd4355 = disable warning C4355 "'this' : used in base member initializer list

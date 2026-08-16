@@ -11,20 +11,13 @@ if(YAML_USE_SYSTEM_GTEST)
   endif()
 else()
     add_subdirectory(
-      "${CMAKE_CURRENT_SOURCE_DIR}/googletest-1.13.0"
+      "${CMAKE_CURRENT_SOURCE_DIR}/googletest-1.16.0"
       "${CMAKE_CURRENT_BINARY_DIR}/prefix")
-    include_directories(SYSTEM "${CMAKE_CURRENT_SOURCE_DIR}/googletest-1.13.0/googletest/include")
+    include_directories(SYSTEM "${CMAKE_CURRENT_SOURCE_DIR}/googletest-1.16.0/googletest/include")
 endif()
 
-set(test-new-api-pattern "new-api/*.cpp")
-set(test-source-pattern "*.cpp" "integration/*.cpp" "node/*.cpp")
-if (CMAKE_VERSION VERSION_GREATER 3.11)
-  list(INSERT test-new-api-pattern 0 CONFIGURE_DEPENDS)
-  list(INSERT test-source-pattern 0 CONFIGURE_DEPENDS)
-endif()
-
-file(GLOB test-new-api-sources ${test-new-api-pattern})
-file(GLOB test-sources ${test-source-pattern})
+file(GLOB test-new-api-sources CONFIGURE_DEPENDS "new-api/*.cpp")
+file(GLOB test-sources CONFIGURE_DEPENDS "*.cpp" "integration/*.cpp" "node/*.cpp")
 
 add_executable(yaml-cpp-tests "")
 target_sources(yaml-cpp-tests
@@ -43,9 +36,9 @@ target_compile_options(yaml-cpp-tests
 target_link_libraries(yaml-cpp-tests
   PRIVATE
     Threads::Threads
-    yaml-cpp
-    gtest
-    gmock)
+    yaml-cpp::yaml-cpp
+    GTest::gtest
+    GTest::gmock)
 
 set_property(TARGET yaml-cpp-tests PROPERTY CXX_STANDARD_REQUIRED ON)
 if (NOT DEFINED CMAKE_CXX_STANDARD)
@@ -54,6 +47,11 @@ endif()
 
 
 add_test(NAME yaml-cpp::test COMMAND yaml-cpp-tests)
+add_test(
+  NAME yaml-cpp::source-list
+  COMMAND ${CMAKE_COMMAND}
+    -D YAML_CPP_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -P ${PROJECT_SOURCE_DIR}/test/cmake/verify-source-list.cmake)
 
 if (build-windows-dll)
   add_custom_command(

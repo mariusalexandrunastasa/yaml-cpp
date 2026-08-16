@@ -920,16 +920,20 @@ namespace jkj {
 #endif
                 }
 
-                template <template <stdr::size_t> class Info, stdr::int_least32_t min_exponent,
-                          stdr::int_least32_t max_exponent, stdr::size_t current_tier,
-                          stdr::int_least32_t supported_min_exponent = Info<current_tier>::min_exponent,
-                          stdr::int_least32_t supported_max_exponent = Info<current_tier>::max_exponent>
+                template <stdr::int_least32_t min_exponent,
+                          stdr::int_least32_t max_exponent,
+                          stdr::int_least32_t supported_min_exponent,
+                          stdr::int_least32_t supported_max_exponent
+                          >
                 constexpr bool is_in_range(int) noexcept {
                     return min_exponent >= supported_min_exponent &&
                            max_exponent <= supported_max_exponent;
                 }
-                template <template <stdr::size_t> class Info, stdr::int_least32_t min_exponent,
-                          stdr::int_least32_t max_exponent, stdr::size_t current_tier>
+                template <stdr::int_least32_t min_exponent,
+                          stdr::int_least32_t max_exponent,
+                          stdr::int_least32_t supported_min_exponent,
+                          stdr::int_least32_t supported_max_exponent
+                          >
                 constexpr bool is_in_range(...) noexcept {
                     // Supposed to be always false, but formally dependent on the template parameters.
                     static_assert(min_exponent > max_exponent,
@@ -939,7 +943,7 @@ namespace jkj {
 
                 template <template <stdr::size_t> class Info, stdr::int_least32_t min_exponent,
                           stdr::int_least32_t max_exponent, stdr::size_t current_tier = 0,
-                          bool = is_in_range<Info, min_exponent, max_exponent, current_tier>(0)>
+                          bool = is_in_range<min_exponent, max_exponent, Info<current_tier>::min_exponent, Info<current_tier>::max_exponent>(0)>
                 struct compute_impl;
 
                 template <template <stdr::size_t> class Info, stdr::int_least32_t min_exponent,
@@ -1227,7 +1231,7 @@ namespace jkj {
                     // reason if we just write n / 10.
                     JKJ_IF_CONSTEXPR(stdr::is_same<UInt, stdr::uint_least32_t>::value && N == 1 &&
                                      n_max <= UINT32_C(1073741828)) {
-                        return UInt(wuint::umul64(n, UINT32_C(429496730)) >> 32);
+                        return UInt(wuint::umul64(static_cast<stdr::uint_least32_t>(n), UINT32_C(429496730)) >> 32);
                     }
                     // Specialize for 64-bit division by 10.
                     // Without the bound on n_max (which compilers these days never leverage), the
@@ -1240,7 +1244,7 @@ namespace jkj {
                     // It seems compilers tend to generate mov + mul instead of a single imul for an
                     // unknown reason if we just write n / 100.
                     else JKJ_IF_CONSTEXPR(stdr::is_same<UInt, stdr::uint_least32_t>::value && N == 2) {
-                        return UInt(wuint::umul64(n, UINT32_C(1374389535)) >> 37);
+                        return UInt(wuint::umul64(static_cast<stdr::uint_least32_t>(n), UINT32_C(1374389535)) >> 37);
                     }
                     // Specialize for 64-bit division by 1000.
                     // Without the bound on n_max (which compilers these days never leverage), the
@@ -2952,7 +2956,7 @@ namespace jkj {
                 auto r = detail::bits::rotr<32>(
                     detail::stdr::uint_least32_t(significand * UINT32_C(184254097)), 4);
                 auto b = r < UINT32_C(429497);
-                auto s = detail::stdr::size_t(b);
+                auto s = DecimalExponentType(b);
                 significand = b ? r : significand;
 
                 r = detail::bits::rotr<32>(
@@ -2984,7 +2988,7 @@ namespace jkj {
                 auto r = detail::bits::rotr<64>(
                     detail::stdr::uint_least64_t(significand * UINT64_C(28999941890838049)), 8);
                 auto b = r < UINT64_C(184467440738);
-                auto s = detail::stdr::size_t(b);
+                auto s = DecimalExponentType(b);
                 significand = b ? r : significand;
 
                 r = detail::bits::rotr<64>(

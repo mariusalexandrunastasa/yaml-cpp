@@ -224,13 +224,6 @@ TEST(LoadNodeTest, DereferenceIteratorError) {
   EXPECT_THROW(node.begin()->begin()->Type(), InvalidNode);
 }
 
-TEST(NodeTest, EmitEmptyNode) {
-  Node node;
-  Emitter emitter;
-  emitter << node;
-  EXPECT_EQ("", std::string(emitter.c_str()));
-}
-
 TEST(NodeTest, ParseNodeStyle) {
   EXPECT_EQ(EmitterStyle::Flow, Load("[1, 2, 3]").Style());
   EXPECT_EQ(EmitterStyle::Flow, Load("{foo: bar}").Style());
@@ -368,11 +361,26 @@ TEST(NodeTest, LoadCommaSeparatedStrings) {
   EXPECT_THROW(Load(R"(,foo)"), ParserException);
 }
 
-TEST(NodeSpecTest, InfiniteLoopNodes) {
+TEST(NodeTest, InfiniteLoopNodes) {
   // Until yaml-cpp <= 0.8.0 this caused an infinite loop;
   // After, it triggers an exception (but LoadAll is smart enough to avoid
   // the infinite loop in any case).
   EXPECT_THROW(LoadAll(R"(,)"), ParserException);
+}
+
+TEST(NodeTest, MultipleDocumentsBeginning) {
+  std::vector<Node> docs = LoadAll("\n---\n---\nA\n");
+  EXPECT_EQ(docs.size(), 2);
+}
+
+TEST(NodeTest, MultipleDocumentsEnds) {
+  std::vector<Node> docs = LoadAll("\n...\nA\n...\n");
+  EXPECT_EQ(docs.size(), 2);
+}
+
+TEST(NodeTest, MultipleDocumentsEndsWithEmptyDocs) {
+  std::vector<Node> docs = LoadAll("\n...\nA\n...\n...\nB\n...");
+  EXPECT_EQ(docs.size(), 4);
 }
 
 struct NewLineStringsTestCase {
@@ -446,6 +454,13 @@ TEST(LoadNodeTest, BlockCREncoded) {
   EXPECT_EQ(1, node["followup"].as<int>());
 }
 
+TEST(LoadNodeTest, IncorrectSeqEnd) {
+  EXPECT_THROW(Load("[foo]_bar"), ParserException);
+}
+
+TEST(LoadNodeTest, NonUniqueMapKey) {
+  EXPECT_THROW(Load("{a: A, b: B, a: A}"), NonUniqueMapKey);
+}
 
 }  // namespace
 }  // namespace YAML
